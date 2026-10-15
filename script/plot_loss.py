@@ -26,7 +26,7 @@ def parse_log(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--logs', nargs='+', required=True,
-                    help='日志文件列表，如 baseline.log runs/cbam_noeval/train.log')
+                    help='日志文件列表，如 result/logs/baseline.log result/logs/cbam_noeval.log')
     ap.add_argument('--labels', nargs='+', default=None,
                     help='与 --logs 一一对应的图例标签，缺省则用文件名')
     ap.add_argument('--out', default='loss_compare.png')

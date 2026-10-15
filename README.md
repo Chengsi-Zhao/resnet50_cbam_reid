@@ -1,97 +1,141 @@
-# ResNet-50 + CBAM 行人重识别(Re-ID)训练代码
+# ResNet-50 + CBAM 行人重识别（Re-ID）
 
-用于「面向社区监控视频的行人寻踪算法与系统」项目的**第二步·算法改进**。
-核心思路：在基线 ResNet-50 的中深层残差阶段(layer2/3/4)嵌入 CBAM 注意力，
-其余数据划分与训练配方保持完全一致(控制变量)，从头训练并对比 mAP / Rank-1。
+本项目在 ResNet-50 上按需嵌入 CBAM，并使用 Market-1501 完成 Re-ID 训练、标准检索评测及三组消融实验。训练目标由身份分类损失和 Batch-hard Triplet 损失共同组成，评测指标为 mAP 与 Rank-1/5/10/20。
 
-## 文件说明
-| 文件 | 作用 |
-|------|------|
-| `cbam.py` | CBAM 模块：通道注意力 + 空间注意力(串行) |
-| `resnet_cbam.py` | ResNet-50 骨干，CBAM 可配置嵌入 layer2/3/4；含 Re-ID embedding 头与特征提取接口 |
-| `datasets.py` | Market-1501 风格数据集加载 + ID-based 采样(满足 triplet loss) |
-| `losses.py` | 身份交叉熵(ID loss) + batch-hard Triplet loss |
-| `evaluate.py` | 训练内置评估模块：被 `train.py` 在每个 Epoch 末调用，算 Rank-1/5/10 与 mAP |
-| `eval.py` | **独立命令行评估脚本**：单独加载某个 `.pth` 权重，用省内存方式补算 mAP / Rank(推荐用于训练后补指标) |
-| `train.py` | 训练入口 |
+## 项目目录
 
-> `evaluate.py` 与 `eval.py` 的区别：前者是训练循环内部调用的评估模块，后者是你**训练结束后单独跑**的命令行入口，二者算法口径一致，但 `eval.py` 专为「16G 内存、评估易 OOM」环境做了省内存设计，补指标时优先用它。
-
-## CBAM 嵌入不同位置(消融实验)
-模型把嵌入位置做成了参数 `--cbam_layers`：
-- `--cbam_layers 2 3 4`  中深层全部嵌入(改进版基础配置)
-- `--cbam_layers 3 4`    只嵌深层
-- `--cbam_layers 4`      只嵌 stage4
-- `--cbam_layers`  (空)  纯基线 ResNet-50(对照组)
-
-`--per_block` 控制是"每个残差块后都嵌"(1) 还是"每个 stage 末尾嵌一次"(0)。
-
-## 训练示例
-改进版(中深层全嵌)：
-```
-python train.py --data_dir /data/market1501 --cbam_layers 2 3 4 \
-    --epochs 60 --batch_size 32 --lr 3.5e-4 --output_dir runs/cbam_exp1
-```
-基线(不加 CBAM，其余参数一模一样)：
-```
-python train.py --data_dir /data/market1501 --cbam_layers \
-    --epochs 60 --batch_size 32 --lr 3.5e-4 --output_dir runs/baseline
+```text
+resnet50_cbam_reid/
+├── README.md                    # 项目入口说明
+├── requirements.txt             # Python 依赖
+├── data/                        # 数据集
+├── model/                       # 训练得到的 best/last 权重
+├── result/                      # 指标、日志、曲线、PID 与实验报告
+├── doc/                         # README 之外的项目文档
+├── script/                      # Python 训练、评测和模型代码
+└── bash_script/                 # 训练与批量评测 bash 脚本
 ```
 
-> 内存紧张时可加 `--num_workers 0 --eval_start 1000`：先跳过训练内置的全量评估，让模型一路跑完 60 个 Epoch 把 `last_model.pth` 存好，**训练结束后再用 `eval.py` 单独补算 mAP**(见下文「独立评估 eval.py」)。
+其中：
 
-在 GPU 节点(gpu1)后台长跑，防止断连：
-```
-nohup python train.py --data_dir /data/market1501 --cbam_layers 2 3 4 \
-    --output_dir runs/cbam_exp1 > train_cbam.log 2>&1 &
-tail -f train_cbam.log
-```
+- `script/resnet_cbam.py`：ResNet-50、CBAM 插入位置与 Re-ID BNNeck。
+- `script/cbam.py`：通道注意力、空间注意力及完整 CBAM。
+- `script/datasets.py`：Market-1501 加载与 ID-based 采样。
+- `script/losses.py`：ID Cross Entropy + Batch-hard Triplet Loss。
+- `script/train.py`：训练入口、分组学习率、warmup 与 checkpoint 保存。
+- `script/evaluate.py`：训练时调用的标准 Re-ID 指标实现。
+- `script/eval.py`：训练后独立评测入口，支持分块计算以降低内存占用。
+- `doc/消融实验.md`：13 个实验的配置、启动方法及结果入口。
+- `doc/代码问题与修改说明.md`：旧代码问题、修复方法和当前限制。
+- `result/ablation_report/REPORT.md`：完整消融结果与结论。
 
-## 数据目录约定(Market-1501 风格)
-```
-data_dir/
-  bounding_box_train/  0001_c1s1_000151_00.jpg ...   # 前4位=身份ID
-  bounding_box_test/   ...                            # gallery
-  bounding_box_query/  ...                            # probe
-```
-> 注意：`train.py`/`datasets.py` 与 `eval.py` 必须读同一套目录命名。`eval.py` 读取的 query 目录名为 `bounding_box_query`、gallery 为 `bounding_box_test`，并兼容 `data_dir/pytorch/...` 子目录布局；若你的数据集 query 目录叫 `query/`，需重命名为 `bounding_box_query/` 或在 `eval.py` 的 `find_dir(...,'bounding_box_query')` 处对齐，否则会报 `FileNotFoundError`。
+`/home/myd/data/models` 是 torchvision 的 ImageNet 预训练权重缓存，不属于本项目训练 checkpoint，因此保持在项目目录外。
 
-## 从头训练说明
-- `--pretrained 1` 表示骨干用 ImageNet 预训练初始化(Re-ID 通用做法)。
-- 基线与改进版**必须用相同的 --pretrained 值**，且都不要加载对方权重(不加 --resume/--load)。
-- 唯一的变量就是 `--cbam_layers`，这样才能证明指标增益来自 CBAM。
+## 数据目录
 
-## 评估接口
+默认数据路径为：
 
-### 方式一：训练内置评估(evaluate.py)
-训练脚本每 `--eval_start` 之后自动评估并保存 best_model.pth(按 mAP)。
-也可在代码中调用 `evaluate.evaluate(model, query_loader, gallery_loader, device)`
-得到 dict: `{rank1, rank5, rank10, mAP, num_query}`。
-> 该方式会在每个评估 Epoch 把整批测试图读入内存，在 16G 内存机器上易触发 OOM，故训练长跑时常用 `--eval_start 1000` 跳过。
-
-### 方式二：独立评估脚本 eval.py(推荐补指标用)
-训练结束后单独加载权重补算指标，专为省内存设计：
-- **流式提特征**：query/gallery 只通过 DataLoader 逐批读图，提完特征即释放，内存只保留 float32 特征矩阵(约几十 MB)；
-- **分块算距离**：query×gallery 距离矩阵按 query 每 `--query_chunk` 条(默认 256)分块计算，不会再一次性生成 3368×19732 的巨型矩阵；
-- **`--num_workers 2`、`pin_memory=False`**：规避子进程与锁页内存叠加导致的 OOM。
-
-跑基线：
-```
-python eval.py --data_dir data/Market-1501-v15.09.15 \
-    --weights runs/baseline/last_model.pth \
-    --output_dir runs/baseline 2>&1 | tee eval_baseline.log
-```
-跑改进版(**CBAM 配置必须与训练时一致**)：
-```
-python eval.py --data_dir data/Market-1501-v15.09.15 \
-    --weights runs/cbam_exp1/last_model.pth \
-    --cbam_layers 2 3 4 --feat_dim 512 \
-    --output_dir runs/cbam_exp1 2>&1 | tee eval_cbam.log
+```text
+data/Market-1501-v15.09.15/
+├── bounding_box_train/          # 训练图像
+├── bounding_box_test/           # Gallery 候选库
+└── query/                       # Query 查询图像
 ```
 
-参数与输出说明：
-- `--weights`：要评估的权重路径，如 `runs/baseline/last_model.pth`(兼容 `{'state_dict':...}` 与裸 state_dict)。
-- **结构参数须与训练一致**：`--cbam_layers / --feat_dim / --per_block / --cbam_ratio / --cbam_kernel / --dropout` 任一与训练不符，`load_state_dict` 会因维度不匹配报错。
-- `--num_classes` 默认 751(Market-1501 训练集身份数)，换数据集必须改，否则分类头维度对不上。
-- 内存仍紧张时：把 `--num_workers 0`、`--query_chunk 64` 调小。
-- 输出：终端打印 mAP / Rank-1 / Rank-5 / Rank-10 / Rank-20，并把关键指标写入 `<output_dir>/metrics.txt`，方便贴进中期报告。
+加载器也兼容 `bounding_box_query/`、`gallery/`、`test/` 和 `pytorch/` 子目录形式。训练集只使用正身份 ID；标准评测保留 Gallery 中的 pid=0 distractor，并排除 pid=-1 junk。
+
+## 模型设计
+
+`--cbam_layers` 控制注意力嵌入的 ResNet stage：
+
+- `--cbam_layers`：不使用注意力，即 Re-ID 基线。
+- `--cbam_layers 4`：只在 layer4 插入。
+- `--cbam_layers 3 4`：在 layer3、layer4 插入。
+- `--cbam_layers 2 3 4`：在中深层插入。
+- `--cbam_layers 1 2 3 4`：四个残差 stage 都插入。
+
+`--per_block 1` 时，CBAM 位于每个 Bottleneck 的 `bn3` 之后、shortcut 相加之前，与原论文的残差块插入方式一致；`--per_block 0` 表示每个 stage 结束后仅插入一次，用于消融。
+
+`--attention_type` 支持 `channel`、`spatial` 和 `cbam`，分别表示仅通道注意力、仅空间注意力和二者串联。
+
+## 直接训练
+
+完整 CBAM 示例：
+
+```bash
+cd /home/myd/workspace/resnet50_cbam_reid
+python script/train.py \
+  --data_dir data/Market-1501-v15.09.15 \
+  --cbam_layers 2 3 4 \
+  --epochs 80 \
+  --batch_size 64 \
+  --pid_batch_size 16 \
+  --output_dir model/cbam_exp1
+```
+
+不带 CBAM 的 Re-ID 基线：
+
+```bash
+python script/train.py \
+  --data_dir data/Market-1501-v15.09.15 \
+  --cbam_layers \
+  --epochs 80 \
+  --batch_size 64 \
+  --pid_batch_size 16 \
+  --output_dir model/baseline_exp1
+```
+
+训练会保存：
+
+- `best_model.pth`：从 `--eval_start` 起，训练期 mAP 最优的 checkpoint。
+- `last_model.pth`：最后一个 epoch 的 checkpoint。
+
+新版 checkpoint 同时保存模型结构、训练配置、类别数、输入尺寸、epoch 和评测指标，便于独立评测自动恢复配置。
+
+## Bash 训练入口
+
+单个预设实验：
+
+```bash
+mkdir -p result/logs
+nohup bash bash_script/train_cbam_gpu7.sh \
+  > result/logs/cbam_l234_seed1.log 2>&1 &
+```
+
+Re-ID 基线和三组消融实验：
+
+```bash
+mkdir -p result/logs/launchers
+nohup bash bash_script/train_baseline_reid.sh \
+  > result/logs/launchers/baseline.log 2>&1 &
+nohup bash bash_script/ablation_position.sh \
+  > result/logs/launchers/position.log 2>&1 &
+nohup bash bash_script/ablation_attention_type.sh \
+  > result/logs/launchers/attention_type.log 2>&1 &
+nohup bash bash_script/ablation_training_strategy.sh \
+  > result/logs/launchers/training_strategy.log 2>&1 &
+```
+
+四个消融入口共用全局文件锁，训练进程总数最多为 10。默认使用物理 GPU 7；可在启动前通过 `GPU_ID`、`MAX_PARALLEL`、`EPOCHS` 等环境变量覆盖公共配置。
+
+## 独立评测
+
+```bash
+python script/eval.py \
+  --data_dir data/Market-1501-v15.09.15 \
+  --weights model/baseline_reid_seed1/best_model.pth \
+  --output_dir result/baseline_reid_seed1/eval_best
+```
+
+批量评测 13 个最佳模型：
+
+```bash
+nohup bash bash_script/evaluate_all_models.sh \
+  > result/logs/evaluate_all_models.log 2>&1 &
+```
+
+评测脚本会严格加载权重，并把 mAP、Rank-1/5/10/20 以百分数写入对应的 `result/.../eval_best/metrics.txt`。
+
+## 当前实验结论
+
+13 个模型中，仅通道注意力（layer2+3+4）效果最好：mAP 79.7824%，Rank-1 91.7755%。完整 CBAM 的最佳插入位置是 layer3+4；主干 0.1 倍学习率的分组策略在当前配置下明显欠拟合。详细数据和 loss 曲线见 `result/ablation_report/REPORT.md`。

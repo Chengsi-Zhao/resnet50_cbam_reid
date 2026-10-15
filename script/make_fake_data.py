@@ -12,7 +12,10 @@ for split, n_pid in splits.items():
     os.makedirs(d, exist_ok=True)
     for pid in range(1, n_pid + 1):
         cnt = 4 if split == 'bounding_box_train' else 1  # 训练每身份4张，评测1张
-        for c in range(cnt):
-            img = Image.new('RGB', (128, 256), (pid * 10 % 255, c * 30, 80))
-            img.save(os.path.join(d, f'{pid:04d}_c1s1_{pid:03d}0{c}_0{c}.jpg'))
+        for idx in range(cnt):
+            img = Image.new('RGB', (128, 256), (pid * 10 % 255, idx * 30, 80))
+            # query 与 gallery 必须来自不同摄像头，否则会被协议视为 junk。
+            cam = 2 if split == 'bounding_box_test' else 1
+            name = f'{pid:04d}_c{cam}s1_{pid:03d}0{idx}_0{idx}.jpg'
+            img.save(os.path.join(d, name))
 print('fake data generated under', root)

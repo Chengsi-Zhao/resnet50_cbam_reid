@@ -13,9 +13,10 @@ class TripletLoss(nn.Module):
         self.margin = margin
 
     def forward(self, feat, labels):
-        dist = torch.pairwise_distance(feat[:, None], feat[None, :])
+        # cdist 明确生成完整的 [batch, batch] 两两欧氏距离矩阵。
+        dist = torch.cdist(feat, feat, p=2)
         pos_mask = labels.eq(labels.view(-1, 1))
-        pos_mask.fill_diagonal_(0)            # 排除自身
+        pos_mask.fill_diagonal_(False)        # 排除自身
         neg_mask = ~labels.eq(labels.view(-1, 1))
 
         # hardest positive：同类中距离最大者
@@ -23,7 +24,7 @@ class TripletLoss(nn.Module):
         # hardest negative：异类中距离最小者
         neg_dist = dist.masked_fill(neg_mask == 0, float('inf')).min(dim=1).values
 
-        valid = pos_mask.sum(dim=1) > 0
+        valid = pos_mask.any(dim=1) & neg_mask.any(dim=1)
         if valid.sum() == 0:
             return feat.new_tensor(0.)
         loss = F.relu(pos_dist[valid] - neg_dist[valid] + self.margin)

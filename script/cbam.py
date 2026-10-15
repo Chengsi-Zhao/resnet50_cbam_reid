@@ -46,14 +46,30 @@ class SpatialAttention(nn.Module):
 
 
 class CBAM(nn.Module):
-    """通道注意力 -> 空间注意力 串联, 不改变张量形状, 可原位插入残差块之后."""
+    """可切换通道、空间或完整 CBAM，用于模块类型消融。"""
 
-    def __init__(self, channels, ratio=16, kernel_size=7):
+    MODES = ('channel', 'spatial', 'cbam')
+
+    def __init__(self, channels, ratio=16, kernel_size=7,
+                 attention_type='cbam'):
         super().__init__()
-        self.channel_att = ChannelAttention(channels, ratio=ratio)
-        self.spatial_att = SpatialAttention(kernel_size=kernel_size)
+        if attention_type not in self.MODES:
+            raise ValueError(
+                f'attention_type 必须是 {self.MODES}，收到 {attention_type!r}'
+            )
+        self.attention_type = attention_type
+        self.channel_att = (
+            ChannelAttention(channels, ratio=ratio)
+            if attention_type in ('channel', 'cbam') else None
+        )
+        self.spatial_att = (
+            SpatialAttention(kernel_size=kernel_size)
+            if attention_type in ('spatial', 'cbam') else None
+        )
 
     def forward(self, x):
-        x = x * self.channel_att(x)   # 先通道
-        x = x * self.spatial_att(x)   # 再空间
+        if self.channel_att is not None:
+            x = x * self.channel_att(x)
+        if self.spatial_att is not None:
+            x = x * self.spatial_att(x)
         return x

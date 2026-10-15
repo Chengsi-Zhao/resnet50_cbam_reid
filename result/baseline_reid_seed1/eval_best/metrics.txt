@@ -1,0 +1,5 @@
+mAP_percent = 77.6933
+rank1_percent = 91.2114
+rank5_percent = 96.4667
+rank10_percent = 97.4762
+rank20_percent = 98.4264

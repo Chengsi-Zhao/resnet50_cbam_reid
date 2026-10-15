@@ -1,0 +1,14 @@
+group,experiment,best_epoch,min_train_loss,min_loss_epoch,mAP_percent,rank1_percent,rank5_percent,rank10_percent,rank20_percent,checkpoint
+baseline,baseline,75,0.0155,46,77.6933,91.2114,96.4667,97.4762,98.4264,model/baseline_reid_seed1/best_model.pth
+position,layer2,76,0.0154,50,77.6495,90.7363,96.2886,98.0107,98.7827,model/ablation_position/layer2/best_model.pth
+position,layer3,71,0.0154,50,77.8726,90.8848,96.0511,97.7138,98.6342,model/ablation_position/layer3/best_model.pth
+position,layer4,79,0.0168,50,76.8454,90.2910,96.2886,97.5950,98.5748,model/ablation_position/layer4/best_model.pth
+position,layer3+4,70,0.0176,48,78.6537,91.0036,96.7637,97.9810,98.7233,model/ablation_position/layer34/best_model.pth
+position,layer2+3+4,72,0.0189,44,78.5630,91.0333,96.4964,98.0107,98.8420,model/ablation_position/layer234/best_model.pth
+attention_type,channel_only,80,0.0174,46,79.7824,91.7755,96.4964,98.1888,98.9014,model/ablation_attention_type/channel/best_model.pth
+attention_type,spatial_only,70,0.0155,50,76.8294,90.8848,96.2886,97.7435,98.5451,model/ablation_attention_type/spatial/best_model.pth
+attention_type,full_cbam,72,0.0189,44,78.5630,91.0333,96.4964,98.0107,98.8420,model/ablation_attention_type/cbam/best_model.pth
+training_strategy,uniform_no_warmup,72,0.0189,44,78.5630,91.0333,96.4964,98.0107,98.8420,model/ablation_training_strategy/uniform_no_warmup/best_model.pth
+training_strategy,grouped_no_warmup,71,0.0169,43,68.7582,85.5107,94.3290,96.3777,97.7138,model/ablation_training_strategy/grouped_no_warmup/best_model.pth
+training_strategy,grouped_warmup5,71,0.0156,49,69.3562,86.2233,94.6259,96.4074,97.9810,model/ablation_training_strategy/grouped_warmup5/best_model.pth
+training_strategy,grouped_warmup10,71,0.0170,52,69.2375,85.6591,94.4477,96.4074,97.8325,model/ablation_training_strategy/grouped_warmup10/best_model.pth

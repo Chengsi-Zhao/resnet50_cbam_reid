@@ -4,7 +4,7 @@
 #   <root>/bounding_box_train/0001_c1s1_000151_00.jpg   (前4位=身份ID)
 #   <root>/bounding_box_test/...
 #   <root>/query/...
-# 文件名第一个数字为身份 ID；'-1' 开头为 distractor，自动忽略。
+# 文件名第一个数字为身份 ID；训练忽略非正 ID，gallery 保留 pid=0 distractor。
 import os
 import re
 import random
@@ -19,16 +19,28 @@ def _parse_pid(filename):
     return int(m.group(1)) if m else None
 
 
-def _collect(dir_path):
+def _collect(dir_path, keep_distractors=False):
     items = []
     for name in sorted(os.listdir(dir_path)):
         if not name.lower().endswith(('.jpg', '.png', '.jpeg')):
             continue
         pid = _parse_pid(name)
-        if pid is None or pid <= 0:
+        if pid is None or pid < 0 or (pid == 0 and not keep_distractors):
             continue
         items.append((os.path.join(dir_path, name), pid))
     return items
+
+
+def _find_dir(root, names):
+    """兼容官方布局、README 旧命名和常见的 pytorch/ 子目录。"""
+    for name in names:
+        for path in (os.path.join(root, 'pytorch', name),
+                     os.path.join(root, name)):
+            if os.path.isdir(path):
+                return path
+    raise FileNotFoundError(
+        f'在 {root} 下找不到目录，候选名称: {", ".join(names)}'
+    )
 
 
 def build_transform(img_size=(256, 128), is_train=True):
@@ -90,7 +102,10 @@ class IdRandomSampler(Sampler):
 
 
 def build_train(root, img_size, batch_size, pid_batch_size=8, num_workers=4):
-    train_items = _collect(os.path.join(root, 'bounding_box_train'))
+    train_dir = _find_dir(root, ['bounding_box_train'])
+    train_items = _collect(train_dir)
+    if not train_items:
+        raise ValueError(f'训练目录中没有有效图片: {train_dir}')
     pids = sorted(set(p for _, p in train_items))
     pid2label = {p: i for i, p in enumerate(pids)}
     relabeled = [(path, pid2label[p]) for path, p in train_items]
@@ -110,8 +125,14 @@ def build_train(root, img_size, batch_size, pid_batch_size=8, num_workers=4):
 
 def build_query_gallery(root, img_size, batch_size, num_workers=4):
     t = build_transform(img_size, False)
-    query = ReidDataset(_collect(os.path.join(root, 'query')), t)
-    gallery = ReidDataset(_collect(os.path.join(root, 'bounding_box_test')), t)
+    query_dir = _find_dir(root, ['query', 'bounding_box_query'])
+    gallery_dir = _find_dir(root, ['bounding_box_test', 'gallery', 'test'])
+    query_items = _collect(query_dir)
+    gallery_items = _collect(gallery_dir, keep_distractors=True)
+    if not query_items or not gallery_items:
+        raise ValueError('query/gallery 目录中没有有效图片')
+    query = ReidDataset(query_items, t)
+    gallery = ReidDataset(gallery_items, t)
     q_loader = DataLoader(query, batch_size=batch_size, shuffle=False,
                           num_workers=num_workers, pin_memory=True)
     g_loader = DataLoader(gallery, batch_size=batch_size, shuffle=False,

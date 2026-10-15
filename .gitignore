@@ -3,11 +3,13 @@ __pycache__/
 venv/
 .venv/
 *.log
-logs/
+*.pid
+result/logs/
 .vscode/
 .idea/
 .env
 /data/
+/model/
 /datasets/
 *.pth
 *.pt
